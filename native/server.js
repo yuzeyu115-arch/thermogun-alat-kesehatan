@@ -5,62 +5,89 @@ const io = require('socket.io')(http);
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 
-// ==========================================
-// PENTING: SESUAIKAN PORT COM ARDUINO KAMU
-// ==========================================
-// Cek di Arduino IDE atau Device Manager laptopmu, Arduino terdeteksi di COM berapa.
-// Contoh: 'COM3' (Windows) atau '/dev/ttyUSB0' (Linux/Mac)
-const ARDUINO_PORT = 'COM3';
-
-// Inisialisasi koneksi ke Serial Port Arduino
-const port = new SerialPort({
-    path: ARDUINO_PORT,
-    baudRate: 9600 // Pastikan baudRate ini sama dengan Serial.begin(9600) di Arduino IDE
-});
-
-// Gunakan parser agar data dibaca baris per baris (\n) bukan pecahan buffer/byte
-const parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
-
-// Sajikan folder 'public' agar file index.html bisa diakses oleh browser
 app.use(express.static('public'));
 
-// Logika ketika ada koneksi dari browser (frontend)
 io.on('connection', (socket) => {
     console.log('🔗 Browser terhubung ke server WebSocket');
-
     socket.on('disconnect', () => {
         console.log('❌ Browser memutuskan koneksi');
     });
 });
 
-// Membaca data yang dikirim oleh Arduino secara berkala
-parser.on('data', (data) => {
-    // Bersihkan spasi kosong dan konversi string dari Arduino menjadi angka desimal (float)
-    const suhu = parseFloat(data.trim());
+let port;
+let parser;
 
-    // Validasi apakah data yang masuk benar-benar angka yang valid
-    if (!isNaN(suhu)) {
-        console.log(`[Arduino Data] Suhu masuk: ${suhu}°C`);
-
-        // Broadcast / Kirim data suhu ini ke semua halaman web yang sedang terbuka
-        io.emit('dataSuhu', suhu);
-    } else {
-        console.log(`[Peringatan] Data diterima bukan angka valid: ${data}`);
+// Fungsi untuk mencari dan menyambung otomatis ke ESP32
+async function autoConnect() {
+    try {
+        const ports = await SerialPort.list();
+        // Cari port yang memiliki informasi USB (seperti ESP32/Arduino)
+        // Mengecualikan port bawaan sistem yang biasanya tidak punya manufacturer
+        const arduinoPort = ports.find(p => p.manufacturer || p.vendorId || p.pnpId);
+        
+        if (arduinoPort) {
+            console.log(`\n🔌 Ditemukan perangkat USB di port: ${arduinoPort.path}`);
+            connectToPort(arduinoPort.path);
+        } else {
+            console.log('⏳ Menunggu ESP32 disambungkan via kabel Type-C...');
+            setTimeout(autoConnect, 2500); // Cek lagi tiap 2.5 detik
+        }
+    } catch (err) {
+        console.error('Error mencari port:', err.message);
+        setTimeout(autoConnect, 2500);
     }
-});
+}
 
-// Menangani error jika port serial gagal dibuka atau terputus tengah jalan
-port.on('error', (err) => {
-    console.error(`🚨 Error pada Serial Port (${ARDUINO_PORT}): `, err.message);
-    console.log('👉 Tips: Pastikan Arduino sudah dicolok dan tidak sedang membuka Serial Monitor di Arduino IDE.');
-});
+function connectToPort(portPath) {
+    port = new SerialPort({
+        path: portPath,
+        baudRate: 115200 // Sesuai dengan Serial.begin(115200) di kode ESP32
+    });
+
+    parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+
+    parser.on('data', (data) => {
+        // Teks dari ESP32 bentuknya "Suhu: 36.50"
+        if (data.includes("Suhu:")) {
+            const suhuStr = data.replace("Suhu:", "").trim();
+            const suhu = parseFloat(suhuStr);
+
+            if (!isNaN(suhu)) {
+                console.log(`[Sensor ESP32] Suhu: ${suhu}°C`);
+                io.emit('dataSuhu', suhu);
+            }
+        } else {
+            console.log(`[Log ESP32] ${data}`);
+        }
+    });
+
+    port.on('open', () => {
+        console.log(`✅ Berhasil terhubung ke ESP32 di port ${portPath}!`);
+    });
+
+    port.on('error', (err) => {
+        console.error(`🚨 Error Serial Port: `, err.message);
+        // Jika gagal buka port (misal sedang dipakai aplikasi lain), coba cari lagi
+        if (err.message.includes('Access denied')) {
+             console.log('👉 Tips: Pastikan Serial Monitor di Arduino IDE sudah ditutup.');
+        }
+    });
+
+    port.on('close', () => {
+        console.log(`\n❌ ESP32 Terputus! Kabel Type-C dicabut?`);
+        // Mulai pencarian otomatis lagi
+        setTimeout(autoConnect, 2000);
+    });
+}
 
 // Menjalankan server lokal pada port 3000
 const PORT_SERVER = 3000;
 http.listen(PORT_SERVER, () => {
     console.log('==================================================');
     console.log(`🚀 Server monitoring aktif!`);
-    console.log(`🌐 Silakan buka browser dan akses: http://localhost:${PORT_SERVER}`);
-    console.log(`🔌 Membaca data Arduino via Port: ${ARDUINO_PORT}`);
+    console.log(`🌐 Buka browser dan akses: http://localhost:${PORT_SERVER}`);
     console.log('==================================================');
+    
+    // Mulai proses auto-connect saat server baru nyala
+    autoConnect();
 });
