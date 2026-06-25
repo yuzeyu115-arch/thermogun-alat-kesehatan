@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Monitoring Thermogun</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+            width: 100%;
+            max-width: 450px;
+            text-align: center;
+        }
+
+        h2 {
+            color: #4a5568;
+            margin-bottom: 5px;
+            font-size: 22px;
+        }
+
+        .subtitle {
+            color: #718096;
+            font-size: 14px;
+            margin-bottom: 25px;
+        }
+
+        .display-suhu {
+            background: #f7fafc;
+            border: 2px dashed #cbd5e0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .angka-suhu {
+            font-size: 56px;
+            font-weight: 800;
+            color: #2d3748;
+            line-height: 1;
+        }
+
+        .satuan {
+            font-size: 24px;
+            font-weight: 500;
+            color: #718096;
+        }
+
+        .status-badge {
+            font-size: 18px;
+            font-weight: bold;
+            padding: 10px 20px;
+            border-radius: 30px;
+            display: inline-block;
+            margin-bottom: 25px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+            /* Default Style Sebelum Ada Data */
+            color: #4a5568;
+            background-color: #edf2f7;
+        }
+
+        .saran-box {
+            text-align: left;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .saran-title {
+            font-weight: 700;
+            font-size: 15px;
+            color: #4a5568;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .saran-list {
+            list-style-type: none;
+        }
+
+        .saran-list li {
+            font-size: 14px;
+            color: #4a5568;
+            margin-bottom: 8px;
+            position: relative;
+            padding-left: 20px;
+            line-height: 1.5;
+        }
+
+        .saran-list li::before {
+            content: "•";
+            position: absolute;
+            left: 5px;
+            font-weight: bold;
+        }
+
+        /* --- STYLING BERDASARKAN STATUS (DINAMIS) --- */
+        .kedinginan {
+            color: #2b6cb0;
+            background-color: #ebf8ff;
+            border: 1px solid #bee3f8;
+        }
+
+        .normal {
+            color: #2f855a;
+            background-color: #f0fff4;
+            border: 1px solid #c6f6d5;
+        }
+
+        .demam {
+            color: #c05621;
+            background-color: #fffaf0;
+            border: 1px solid #feebc8;
+        }
+
+        .kritis {
+            color: #9b2c2c;
+            background-color: #fff5f5;
+            border: 1px solid #fed7d7;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.03);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h2>Hasil Scan Thermogun</h2>
+        <div class="subtitle">Data terhubung langsung dari perangkat Arduino</div>
+
+        <div class="display-suhu">
+            <span class="angka-suhu" id="nilaiSuhu">--.-</span>
+            <span class="satuan">°C</span>
+        </div>
+
+        <div id="badgeStatus" class="status-badge">Menunggu Data...</div>
+
+        <div class="saran-box">
+            <div class="saran-title">
+                <span>📋</span> Rekomendasi & Tindakan:
+            </div>
+            <ul class="saran-list" id="listSaran">
+                <li>Silakan arahkan thermogun pada dahi objek untuk mendeteksi suhu tubuh.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Menghubungkan client-side library Socket.io -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Inisialisasi koneksi websocket ke server backend
+        const socket = io();
+
+        // Mengambil elemen HTML berdasarkan ID
+        const nilaiSuhu = document.getElementById('nilaiSuhu');
+        const badgeStatus = document.getElementById('badgeStatus');
+        const listSaran = document.getElementById('listSaran');
+
+        // Mendengarkan event 'dataSuhu' yang dikirim oleh server.js
+        socket.on('dataSuhu', (suhu) => {
+            // Update angka suhu di layar (dibulatkan 1 angka di belakang koma)
+            nilaiSuhu.innerText = suhu.toFixed(1);
+
+            // Variabel penampung teks status, class CSS, dan daftar saran
+            let statusText = "";
+            let statusClass = "";
+            let saranHtml = "";
+
+            // LOGIKA PENGONDISIAN UTAMA
+            if (suhu < 35.0) {
+                statusText = "Kedinginan / Hipotermia";
+                statusClass = "status-badge kedinginan";
+                saranHtml = `
+                    <li>Segera pindahkan pasien ke ruangan yang hangat dan tertutup.</li>
+                    <li>Gunakan selimut tebal atau pakaian berlapis.</li>
+                    <li><strong>Wajib diberikan makan dan minum yang hangat-hangat</strong> (seperti teh hangat atau sup).</li>
+                `;
+            }
+            else if (suhu >= 35.0 && suhu <= 37.5) {
+                statusText = "Normal";
+                statusClass = "status-badge normal";
+                saranHtml = `
+                    <li>Suhu tubuh dalam kondisi ideal dan sehat.</li>
+                    <li>Tetap jaga hidrasi tubuh dengan minum air putih yang cukup.</li>
+                    <li>Pertahankan pola makan bergizi dan istirahat teratur.</li>
+                `;
+            }
+            else if (suhu > 37.5 && suhu <= 38.5) {
+                statusText = "Demam Ringan";
+                statusClass = "status-badge demam";
+                saranHtml = `
+                    <li>Pasien terdeteksi mengalami demam. Perbanyak istirahat.</li>
+                    <li>Gunakan pakaian yang tipis namun nyaman agar panas tubuh mudah keluar.</li>
+                    <li><strong>Disarankan kompres air hangat</strong> di dahi atau ketiak, serta minum obat penurun panas jika diperlukan.</li>
+                `;
+            }
+            else { // Suhu di atas 38.5°C
+                statusText = "Kritis / Demam Tinggi";
+                statusClass = "status-badge kritis";
+                saranHtml = `
+                    <li><strong>Peringatan Krisis!</strong> Suhu tubuh terlalu tinggi dan berbahaya.</li>
+                    <li>Segera lakukan <strong>saran berobat ke dokter, klinik, atau IGD terdekat</strong>.</li>
+                    <li>Pantau kondisi secara berkala, pasien kemungkinan membutuhkan tindakan <strong>rawat inap</strong> jika lemas atau kejang.</li>
+                `;
+            }
+
+            // Terapkan perubahan ke elemen HTML secara real-time
+            badgeStatus.innerText = statusText;
+            badgeStatus.className = statusClass;
+            listSaran.innerHTML = saranHtml;
+        });
+    </script>
+</body>
+
+</html>

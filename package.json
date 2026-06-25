@@ -1,0 +1,18 @@
+{
+    "name": "my-thermogun-app",
+    "version": "1.0.0",
+    "description": "Sistem Monitoring Thermogun Real-time menggunakan Arduino dan Node.js",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "@serialport/parser-readline": "^10.5.0",
+        "express": "^4.19.2",
+        "serialport": "^12.0.0",
+        "socket.io": "^4.7.5"
+    }
+}
